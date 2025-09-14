@@ -200,6 +200,7 @@ def quant_mx(w_fp16, wq_bits: int = 4, datatype: str = "", group_size: int = 32)
 def quant_datatype(
     w_fp16, wq_bits: int = 4, datatype: str = "", group_size: Optional[int] = None
 ):
+    """GDDQ:group-wise symmetric non-uniform lookup-table quantization"""
     if wq_bits == 3:
         DATATYPE_MAPPING = DATATYPE_MAPPING_3_BIT
     elif wq_bits == 4:
@@ -269,6 +270,8 @@ def search_datatype(
 ):
     """
     函数对每个权重分组独立选择最优的量化类型,而不是对整个层使用单一量化类型.
+    对每一组权重(默认 32 个元素)独立地从 4 种候选量化格式里选 MSE 最小的那一种,
+    然后返回整层混合格式量化后的权重.
     """
     # 确定候选量化类型列表, 进行混合类型量化
     if wq_bits == 3:

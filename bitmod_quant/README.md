@@ -1,13 +1,7 @@
 
 # Weight-only quantization using different datatypes
 
-This folder contains the file and script to reproduce the results in **_Table VI_** and **_Table VIII_** of our BitMoD paper.
-To run the experiments, first change to this directory and activate the **awq-bitmod** conda environment. If you haven't set up the **awq-bitmod** environment, follow the instructions under the `AWQ-BitMoD` folder to set up the environment.
-```
-cd bitmod_quant
-conda activate awq-bitmod
-```
-Evaluation of Wikitext perplexity
+使用wikitext数据集计算困惑度
 ```
 python llm_eval_wikitext.py \
   --model ${model} \
@@ -15,7 +9,8 @@ python llm_eval_wikitext.py \
   --wq_datatype ${quant_datatype} \
   --wq_groupsize ${quant_groupsize}
 ```
-Evaluation of C4 perplexity
+
+使用C4数据集计算困惑度
 ```
 python llm_eval_c4.py \
   --model ${model} \
@@ -23,21 +18,9 @@ python llm_eval_c4.py \
   --wq_datatype ${quant_datatype} \
   --wq_groupsize ${quant_groupsize}
 ```
-where `--model` is the model path to load the LLM, `--wq_bits` is an integer to specify the quantization precision, `wq_datatype` is the quantization data type (see below for supported data types), `--wq_groupsize` is the quantization group size (we use 128 by default).
-
-We also provide an automatic script **run_exp.sh** to run experiments on different models, data types and precision.
-Please first change the default HuggingFace directory at the beginning of `run_exp.sh`
-```
-export HF_HOME="your/HF_HOME/directory"
-```
-Then you can modify `run_exp.sh` (e.g., model_list, datatype_list) and run massive experiments with
-```
-bash run_exp.sh
-```
-The perplexity results will be saved in a folder called `results_quant` under this directory.
 
 ## Supported Data Types:
-The following table shows the supported data types
+
 | **Data Type**              | Definition                                                                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **fp16**                   | The baseline FP16 model without quantization                                                                                                                  |
@@ -65,6 +48,7 @@ The following table shows the supported data types at different precision
 
 ## example
 
+```
 python llm_eval_wikitext.py \
     --model "facebook/opt-125m" \
     --wq_bits "6" \
@@ -72,3 +56,4 @@ python llm_eval_wikitext.py \
     --wq_groupsize "128"
 
 python llm_eval_wikitext.py --model "facebook/opt-125m" --wq_bits 8 --wq_datatype "int8_asym" --wq_groupsize 128
+```
