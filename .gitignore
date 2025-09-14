@@ -1,0 +1,10 @@
+__pycache__/
+.vscode/*
+.venv/*
+
+results_quant/
+
+AWQ-BitMoD/
+OmniQuant-BitMoD/
+SmoothQuant-BitMoD/
+bitmod_sim/
