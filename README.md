@@ -1,4 +1,4 @@
-# BitMoD: Bit-serial Mixture-of-Datatype LLM Acceleration [\[Paper\]](https://arxiv.org/abs/2411.11745)
+## BitMoD: Bit-serial Mixture-of-Datatype LLM Acceleration
 
 [源项目地址](https://github.com/abdelfattah-lab/BitMoD-HPCA-25)
 

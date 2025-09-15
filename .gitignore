@@ -7,4 +7,8 @@ results_quant/
 AWQ-BitMoD/
 OmniQuant-BitMoD/
 SmoothQuant-BitMoD/
-bitmod_sim/
+
+
+*.dat
+*.log
+*.txt
