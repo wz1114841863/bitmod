@@ -48,7 +48,10 @@ class Accelerator(PE_Array):
             self._calc_num_mem_refetch()
 
     def calc_cycle(self):
-        # 总周期 = max(计算周期, DRAM 访问周期), 按层累加
+        """顶层接口,计算总运行周期.
+        总周期 = max(计算周期, DRAM 访问周期), 按层累加.
+        模拟了 Double Buffering (双缓冲) 或流水线机制.计算和加载是并行进行的,所以总时间取决于那个"慢"的步骤(Compute-bound vs Memory-bound).
+        """
         self._calc_compute_cycle()
         self._calc_dram_cycle()
         total_cycle = 0
@@ -62,6 +65,7 @@ class Accelerator(PE_Array):
         return total_cycle_compute, total_cycle
 
     def _calc_compute_cycle(self):
+        """计算所有层纯粹在 PE 阵列上运算需要的周期数."""
         self._layer_cycle_compute = {}
         for name in self.layer_name_list:
             w_dim = self.weight_dim[name]
@@ -81,6 +85,7 @@ class Accelerator(PE_Array):
         return total_tile
 
     def _calc_tile_fc(self, w_dim, o_dim):
+        """计算一个矩阵乘法需要切分成多少个 Tile(小块)才能在 PE 阵列上算完成."""
         pe_dp_size = self.pe_dp_size
         num_pe_row = self.pe_array_dim["h"]
         num_pe_col = self.pe_array_dim["w"]
@@ -124,12 +129,14 @@ class Accelerator(PE_Array):
             self._layer_cycle_dram[name] = int(cycle_layer_dram)
 
     def calc_compute_energy(self):
+        """计算 PE 阵列运算消耗的动态能耗"""
         if self.cycle_compute is None:
             self.cycle_compute, _ = self.calc_cycle()
         compute_energy = self.pe_energy * self.total_pe_count * self.cycle_compute
         return compute_energy
 
     def calc_sram_rd_energy(self):
+        """计算从片上 SRAM 读取数据供给 PE 的能耗"""
         w_sram_rd_cost = self.w_sram.r_cost
         i_sram_rd_cost = self.i_sram.r_cost
         num_pe_row = self.pe_array_dim["h"]
@@ -143,6 +150,7 @@ class Accelerator(PE_Array):
         return sram_rd_energy
 
     def calc_sram_wr_energy(self):
+        """计算把数据从 DRAM 写入到 SRAM 的能耗"""
         total_energy = 0
         for name in self.layer_name_list:
             w_dim = self.weight_dim[name]
@@ -179,6 +187,7 @@ class Accelerator(PE_Array):
         return total_energy
 
     def calc_dram_energy(self):
+        """计算 DRAM 访问的能耗"""
         energy = 0
         for name in self.layer_name_list:
             energy += self._calc_dram_energy_fc(name)
@@ -207,6 +216,7 @@ class Accelerator(PE_Array):
         return total_energy
 
     def _check_layer_mem_size(self):
+        """计算每一次(layer)计算所需的权重/输入/输出内存大小"""
         self._w_mem_required = {}
         self._i_mem_required = {}
         self._o_mem_required = {}
@@ -233,6 +243,13 @@ class Accelerator(PE_Array):
             self._o_mem_required[name] = math.ceil(cout * i_prec / 8) * num_token
 
     def _calc_num_mem_refetch(self):
+        """核心数据流调度逻辑
+        如果权重所需空间 > 权重SRAM大小 且 输入所需空间 > 输入SRAM大小,
+        则需要在DRAM和SRAM之间反复取回数据.
+        方案A: 每次取回所有权重数据, 对每个输入tile重复使用这些权重数据.
+        方案B: 每次取回所有输入数据, 对每个权重tile重复使用这些输入数据.
+        选择总数据传输量更小的方案进行模拟.
+        """
         # If the on-chip buffer size is not big enough,
         # we need to refetch input tiles or weight tiles from DRAM
         self._layer_mem_refetch = {}
@@ -266,6 +283,10 @@ class Accelerator(PE_Array):
                     self._layer_mem_refetch[name] = (1, 1)
 
     def _init_mem(self):
+        """定义具体的存储硬件规格
+        SRAM(片上缓存): 定义了 w_sram(权重缓存)和 i_sram(输入/激活缓存).
+        DRAM(片外存储): 定义了 dram(主存储器).
+        """
         if self.is_bit_serial:
             w_bandwidth = (
                 self.pe_dp_size

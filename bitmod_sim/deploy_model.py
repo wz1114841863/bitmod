@@ -10,8 +10,9 @@ def get_model_structure(model_name: str, depth: int = 6, is_print: bool = True):
     # 加载模型和分词器
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype="float16",
-        device_map="cpu",
+        dtype=torch.float16,
+        low_cpu_mem_usage=True,
+        device_map="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 

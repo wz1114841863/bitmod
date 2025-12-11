@@ -2,7 +2,7 @@ import argparse
 from accelerator import Accelerator
 
 # model_list = ["facebook/opt-1.3b", "microsoft/phi-2", "01-ai/Yi-6B", "meta-llama/Llama-2-7b-hf", "meta-llama/Llama-2-13b-hf", "meta-llama/Meta-Llama-3-8B"]
-model_list = ["facebook/opt-1.3b"]
+model_list = ["facebook/opt-125m"]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

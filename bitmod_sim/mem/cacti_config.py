@@ -270,6 +270,7 @@ class CactiConfig:
 
         self.config_option = {}
         self.config_option["cache_size"] = {
+            # 缓存总容量, 单位: bytes
             "string": "-size (bytes) ",
             "option": [
                 64,
@@ -300,6 +301,7 @@ class CactiConfig:
         }
 
         self.config_option["line_size"] = {
+            # 缓存块大小, 默认为 64 bytes
             "string": "-block size (bytes) ",
             "option": [8, 16, 24, 32, 64],
             "default": 64,
@@ -307,60 +309,71 @@ class CactiConfig:
 
         # Unit for IO_bus_width is bit.
         self.config_option["IO_bus_width"] = {
+            # 输出总线宽度, 单位: bit
             "string": "# Wordwidth (bit)\n" + "-output/input bus width ",
             "option": [4, 8, 16, 24, 32, 64, 128],
             "default": 128,
         }
 
         self.config_option["associativity"] = {
+            # 组相联度
             "string": "-associativity ",
             "option": [0, 1, 2, 4],
             "default": 1,
         }
 
         self.config_option["rd_wr_port"] = {
+            # 读写复用端口数
             "string": "-read-write port ",
             "option": [0, 1, 2, 3, 4],
             "default": 0,
         }
 
         self.config_option["ex_rd_port"] = {
+            # 独立读端口数
             "string": "-exclusive read port ",
             "option": [0, 1, 2, 3, 4],
             "default": 2,
         }
 
         self.config_option["ex_wr_port"] = {
+            # 独立写端口数
             "string": "-exclusive write port ",
             "option": [0, 1, 2, 3, 4],
             "default": 2,
         }
 
         self.config_option["single_rd_port"] = {
+            # 单端读端口数
             "string": "-single ended read ports ",
             "option": [0, 1, 2, 3, 4],
             "default": 0,
         }
 
         self.config_option["bank_count"] = {
+            # 将存储器切分为多少个 Bank.
+            # 增加 Bank 数可以提高并行度,但会增加路由开销.
             "string": "-UCA bank count ",
             "option": [1, 2, 4, 8, 16],
             "default": 1,
         }
 
         self.config_option["technology"] = {
+            # 工艺制程节点, 默认是 0.090 (90nm)
             "string": "-technology (u) ",
             "option": [0.022, 0.028, 0.040, 0.032, 0.065, 0.090],
             "default": 0.090,
         }
 
         self.config_option["mem_type"] = {
+            # 存储器类型
             "string": "-cache type ",
             "option": ['"cache"', '"ram"', '"main memory"'],
             "default": '"ram"',
         }
 
         self.config_option["mem_cell_type"] = {
+            # 存储器单元类型
             "string": "-Data array cell type - ",
             "option": [
                 '"itrs-hp"',

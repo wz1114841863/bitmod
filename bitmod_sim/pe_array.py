@@ -1,6 +1,7 @@
-from typing import List
 import numpy as np
 import math, pickle
+from typing import List
+from model_list import model_name_dict
 
 
 class PE_Array:
@@ -57,15 +58,6 @@ class PE_Array:
     def _init_model_profiler(
         self, model_name, context_length: int = 256, is_generation: bool = False
     ):
-        model_name_dict = {
-            "facebook/opt-1.3b": "opt_1_point_3",
-            "facebook/opt-6.7b": "opt_6_point_7",
-            "microsoft/phi-2": "phi_2",
-            "01-ai/Yi-6B": "yi_6",
-            "meta-llama/Llama-2-7b-hf": "llama_2_7",
-            "meta-llama/Llama-2-13b-hf": "llama_2_13",
-            "meta-llama/Meta-Llama-3-8B": "llama_3_8",
-        }
         file_path = f"./model_shape_config/{model_name_dict[model_name]}.pickle"
         with open(file_path, "rb") as f:
             model_config, layer_config = pickle.load(f)

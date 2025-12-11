@@ -4,7 +4,8 @@
 # 1. Profile the LLM configuration and layer shape.
 # The profiled information will be saved in a new folder **model_shape_config** under this directory.
 
-bash run_shape_profile.sh
+# bash run_shape_profile.sh
+python llm_shape_profile.py --model [model_name]
 
 # 2. Get the latency and energy of different models for discriminative and generative tasks.
 # --is_generation: optional, evaluate the hardware performance of generative / discriminative tasks.

@@ -37,9 +37,10 @@ class MemoryInstance:
             self.area = mem_config["area"]
             self.latency = round(mem_config["latency"], 3)
         else:
+            # 片外DRAM或想强制指定参数时.
             self.r_cost = r_cost
             self.w_cost = w_cost
-            self.area = 0
+            self.area = 0  # 不关心片外内存的面积
             self.latency = latency
 
         self.size = mem_config["size"]
@@ -53,6 +54,9 @@ class MemoryInstance:
             self.r_bw_min = mem_config["rw_bw"]
             self.r_cost_min = self.r_cost
         else:
+            # 物理存储器的接口宽度(Bandwidth)通常很宽(例如 128-bit),
+            # 但实际计算时可能只需要读写一小部分数据(例如 16-bit)
+            # 它假设能耗与访问的数据量成线性比例.
             self.r_bw_min = min_r_granularity
             self.r_cost_min = self.r_cost / (self.rw_bw / self.r_bw_min)
 

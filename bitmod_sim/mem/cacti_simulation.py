@@ -40,6 +40,10 @@ class CactiSimulation:
             f"./cacti -infile {cacti_config_file}", shell=True, stdout=PIPE, stderr=PIPE
         )
         stdout, stderr = stream.communicate()
+
+        if stderr:
+            print("CACTI Error:", stderr.decode())
+
         os.chdir(original_cwd)  # Change back to the original working directory
 
         #################### 3. Collect results ####################
@@ -105,6 +109,7 @@ class CactiSimulation:
             )
 
     def _prepare_config_file(self, cacti_config_file):
+        """Prepare the CACTI configuration file based on the provided mem_config"""
         mem_config = {}
         mem_config["technology"] = float(self.mem_config["technology"])
         mem_type = self.mem_config["mem_type"]
