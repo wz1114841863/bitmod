@@ -1,0 +1,11 @@
+__pycache__/
+__init__.py
+*.pyc
+
+plot/*
+model_shape_config/*
+model_struct/*
+results_quant/*
+results/*
+mem/self_gen/*
+mem/cacti/sample_config_files/*
