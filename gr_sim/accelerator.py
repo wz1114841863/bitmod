@@ -5,10 +5,10 @@ import numpy as np
 from typing import List
 from mem.mem_instance import MemoryInstance
 from pe_array import PE_Array
+from decoder import Decoder
 
 
-# Stripes accelerator
-class Accelerator(PE_Array):
+class DecoderAccelerator(PE_Array):
     """结构级模拟器,用于估算Transformer模型在特定PE阵列 + SRAM + DRAM 架构上运行时的总周期与总能耗."""
 
     PR_SCALING = 1.5  # scaling factor to account for post placement and routing
@@ -26,6 +26,7 @@ class Accelerator(PE_Array):
         init_mem: bool = True,
         context_length: int = 256,
         is_generation: bool = False,
+        decoder_config: dict = {},
     ):
         super().__init__(
             model_name,
@@ -39,6 +40,12 @@ class Accelerator(PE_Array):
             context_length,
             is_generation,
         )
+        self.decoder = None
+        if decoder_config is not None:
+            self.decoder = Decoder(decoder_config)
+            print(
+                f"[Accelerator] Decoder enabled with trans_prec={self.decoder.trans_prec} bits"
+            )
 
         self.cycle_compute = None
         if init_mem:
@@ -58,14 +65,29 @@ class Accelerator(PE_Array):
         self._calc_dram_cycle()  # 计算每层的DRAM访问周期
         total_cycle = 0
         total_cycle_compute = 0
+
         for name in self.layer_name_list:
             cycle_layer_compute = self._layer_cycle_compute[name]
             cycle_layer_dram = self._layer_cycle_dram[name]
+            # 计算解码周期
+            cycle_layer_decode = 0
+            # 只有线性层权重被压缩 (Attention 层跳过)
+            is_compressed_layer = not (("attn_qk" in name) or ("attn_v" in name))
+            if self.decoder and is_compressed_layer:
+                decode_throughput = self.decoder.get_throughput_bits_per_ns()
+                total_bytes_trans = self._w_mem_required[name]
+                num_fetch_w, _ = self._layer_mem_refetch[name]
+                total_bits = total_bytes_trans * 8 * num_fetch_w
+                # 解码延迟 = 总比特数 / 吞吐率
+                cycle_layer_decode = total_bits / decode_throughput
+
             total_cycle_compute += cycle_layer_compute
             print(
-                f"Layer: {name}, Compute Cycle: {cycle_layer_compute}, DRAM Cycle: {cycle_layer_dram}"
+                f"Layer: {name}, Compute Cycle: {cycle_layer_compute}, DRAM Cycle: {cycle_layer_dram}, Decode Cycle: {cycle_layer_decode}"
             )
-            total_cycle += max(cycle_layer_compute, cycle_layer_dram)
+            # 流水线瓶颈分析: 取 Compute, DRAM, Decode 中的最大值
+            bottleneck = max(cycle_layer_compute, cycle_layer_dram, cycle_layer_decode)
+            total_cycle += bottleneck
         self.cycle_compute = total_cycle_compute
         return total_cycle_compute, total_cycle
 
@@ -115,12 +137,12 @@ class Accelerator(PE_Array):
         dram_bandwidth = self.dram.rw_bw * 2  # DDR双倍带宽
 
         for name in self.layer_name_list:
-            i_prec = self.i_prec
-            if ("attn_qk" in name) or ("attn_v" in name):
-                w_prec = self.i_prec
-            else:
-                w_prec = self.w_prec
-            w_dim = self.weight_dim[name]
+            # i_prec = self.i_prec
+            # if ("attn_qk" in name) or ("attn_v" in name):
+            #     w_prec = self.i_prec
+            # else:
+            #     w_prec = self.w_prec
+            # w_dim = self.weight_dim[name]
             # 权重或激活重取次数
             num_dram_fetch_w, num_dram_fetch_i = self._layer_mem_refetch[name]
             # 权重加载周期
@@ -149,15 +171,28 @@ class Accelerator(PE_Array):
         """计算从片上 SRAM 读取数据供给 PE 的能耗"""
         w_sram_rd_cost = self.w_sram.r_cost  # 权重SRAM读能耗
         i_sram_rd_cost = self.i_sram.r_cost  # 输入SRAM读能耗
-        num_pe_row = self.pe_array_dim["h"]
-        num_pe_col = self.pe_array_dim["w"]
-        if self.cycle_compute is None:
-            self.cycle_compute, _ = self.calc_cycle()
-        num_cycle_compute = self.cycle_compute
-        num_tile = self.calc_pe_array_tile()  # 总计算块数
-        # SRAM读取能耗 = 总计算块数 × (权重SRAM读能耗 + 输入SRAM读能耗)
-        sram_rd_energy = num_tile * (w_sram_rd_cost + i_sram_rd_cost)
-        return sram_rd_energy
+
+        total_tile = 0
+        total_w_tiles = 0  # 单独统计权重 Tile
+
+        for name in self.layer_name_list:
+            w_dim = self.weight_dim[name]
+            o_dim = self.output_dim[name]
+            tiles = self._calc_tile_fc(w_dim, o_dim)
+            total_tile += tiles
+            total_w_tiles += tiles
+
+        # 获取 Main SRAM 读取能耗
+        # 如果有解码器,说明 Main SRAM 存的是压缩数据.
+        w_read_energy = total_w_tiles * w_sram_rd_cost
+        if self.decoder:
+            compression_ratio = self.decoder.trans_prec / self.w_prec
+            w_read_energy *= compression_ratio
+
+        i_read_energy = total_tile * i_sram_rd_cost
+
+        # SRAM读取能耗 = 权重SRAM读能耗 + 输入SRAM读能耗
+        return w_read_energy + i_read_energy
 
     def calc_sram_wr_energy(self):
         """计算把数据从 DRAM 写入到 SRAM 的能耗"""
@@ -172,6 +207,12 @@ class Accelerator(PE_Array):
         return total_energy
 
     def _calc_sram_wr_energy_fc(self, layer_name, w_dim, i_dim, o_dim, w_prec, i_prec):
+        # 确定写入 SRAM 的权重精度
+        if self.decoder:
+            w_prec = self.decoder.trans_prec  # 写压缩数据
+        else:
+            w_prec = self.w_prec  # 写原始数据
+
         w_sram_wr_cost = self.w_sram.w_cost_min  # 权重SRAM写能耗
         i_sram_wr_cost = self.i_sram.w_cost_min  # 输入SRAM写能耗
         w_sram_min_wr_bw = self.w_sram.w_bw_min  # 最小写带宽
@@ -232,6 +273,47 @@ class Accelerator(PE_Array):
         total_energy = energy_weight + energy_input + energy_output
         return total_energy
 
+    def calc_extra_onchip_energy(self):
+        """计算额外的片上能耗,包括解码器逻辑能耗和小型缓冲区能耗"""
+        if self.decoder is None:
+            return 0.0
+
+        total_extra = 0
+        for name in self.layer_name_list:
+            # 跳过 Attention 层
+            if ("attn_qk" in name) or ("attn_v" in name):
+                continue
+
+            # 获取该层权重总数 (用于 Small Buffer 访问计算)
+            w_dim = self.weight_dim[name]
+            cout_w, cin_w = w_dim
+            num_weights = cout_w * cin_w
+
+            # 获取 Refetch 次数
+            num_fetch_w, _ = self._layer_mem_refetch[name]
+
+            # 1. 解码器逻辑能耗
+            # 输入: 压缩比特流的总量 (Bytes * 8) * Refetch
+            total_compressed_bits = self._w_mem_required[name] * 8 * num_fetch_w
+            logic_e = self.decoder.calc_logic_energy(total_compressed_bits)
+
+            # 2. Small Buffer 能耗
+            # 访问量: (Weights) * Refetch
+            small_buf_e = self.decoder.calc_small_buffer_energy(
+                num_weights * num_fetch_w
+            )
+
+            total_extra += logic_e + small_buf_e
+
+        return total_extra
+
+    def get_total_area(self):
+        """获取总面积 (含额外开销)"""
+        base_area = self.pe_array_area + self.w_sram.area + self.i_sram.area
+        if self.decoder:
+            return base_area + self.decoder.get_total_area_overhead()
+        return base_area
+
     def _check_layer_mem_size(self):
         """计算每一次(layer)计算所需的权重/输入/输出内存大小"""
         self._w_mem_required = {}  # 每层权重所需内存大小
@@ -243,7 +325,10 @@ class Accelerator(PE_Array):
             if ("attn_qk" in name) or ("attn_v" in name):
                 w_prec = self.i_prec
             else:
-                w_prec = self.w_prec
+                if self.decoder:
+                    w_prec = self.decoder.trans_prec  # 存压缩数据
+                else:
+                    w_prec = self.w_prec  # 存原始数据
 
             w_dim = self.weight_dim[name]
             i_dim = self.input_dim[name]

@@ -1,6 +1,6 @@
 import argparse
 import os
-from accelerator import Accelerator
+from accelerator import DecoderAccelerator
 
 # model_list = ["facebook/opt-1.3b", "microsoft/phi-2", "01-ai/Yi-6B", "meta-llama/Llama-2-7b-hf", "meta-llama/Llama-2-13b-hf", "meta-llama/Meta-Llama-3-8B"]
 model_list = ["facebook/opt-125m", "facebook/opt-1.3b"]
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     total_latency_list = [0 for _ in model_list]
 
     for idx, model_name in enumerate(model_list):
-        acc = Accelerator(
+        acc = DecoderAccelerator(
             model_name=model_name,
             i_prec=16,
             w_prec=16,
