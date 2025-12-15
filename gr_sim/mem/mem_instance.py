@@ -3,7 +3,7 @@ from typing import Dict
 
 
 class MemoryInstance:
-    ## The class constructor
+    # # The class constructor
     # Collect all the basic information of a physical memory module.
     # @param mem_config: configuration of memory
     # @param latency: memory access latency (unit: number of cycles).
@@ -15,13 +15,13 @@ class MemoryInstance:
     # @param get_cost_from_cacti (bool): Automatically extract the read cost, write cost and area using CACTI.
     def __init__(
         self,
-        mem_config: Dict,
-        r_cost: float = 0,
-        w_cost: float = 0,
-        latency: float = 1,
-        min_r_granularity=None,
-        min_w_granularity=None,
-        get_cost_from_cacti: bool = True,
+        mem_config: Dict,  # 内存配置
+        r_cost: float = 0,  # 读能耗 (pJ)
+        w_cost: float = 0,  # 写能耗 (pJ)
+        latency: float = 1,  # 访问延迟 (cycle)
+        min_r_granularity=None,  # 最小读粒度 (bit)
+        min_w_granularity=None,  # 最小写粒度 (bit)
+        get_cost_from_cacti: bool = True,  # 是否使用CACTI自动提取成本
     ):
         if get_cost_from_cacti:
             # Size must be a multiple of 8 when using CACTI

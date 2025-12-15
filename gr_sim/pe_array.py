@@ -58,6 +58,7 @@ class PE_Array:
     def _init_model_profiler(
         self, model_name, context_length: int = 256, is_generation: bool = False
     ):
+        # 为模型的各个层收集完整的输入/权重/输出维度信息
         file_path = f"./model_shape_config/{model_name_dict[model_name]}.pickle"
         with open(file_path, "rb") as f:
             model_config, layer_config = pickle.load(f)
