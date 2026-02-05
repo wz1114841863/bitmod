@@ -7,7 +7,8 @@ from model_list import model_name_dict
 class PE_Array:
     """硬件-模型联合建模工具,
     用于评估Transformer模型在特定PE阵列上的能耗/面积和延迟,
-    支持前缀推理和生成推理两种模式"""
+    支持前缀推理和生成推理两种模式
+    """
 
     PR_SCALING = 1.5  # scaling factor to account for post placement and routing
 

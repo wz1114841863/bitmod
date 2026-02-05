@@ -12,7 +12,7 @@ def get_model_structure(model_name: str, depth: int = 6, is_print: bool = True):
         model_name,
         dtype=torch.float16,
         low_cpu_mem_usage=True,
-        device_map="auto",
+        # device_map="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -42,5 +42,5 @@ def get_model_structure(model_name: str, depth: int = 6, is_print: bool = True):
 
 
 if __name__ == "__main__":
-    model_name = "facebook/opt-125m"
+    model_name = "facebook/opt-1.3b"
     get_model_structure(model_name, depth=6, is_print=False)
