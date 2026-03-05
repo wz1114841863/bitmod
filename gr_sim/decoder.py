@@ -29,6 +29,7 @@ class Decoder:
         self.small_sram_energy_per_access = config.get(
             "small_sram_energy_per_access", 0.0
         )
+        self.frequency_ghz = config.get("frequency_ghz", 1.0)
 
     def calc_logic_energy(self, total_compressed_bits):
         """计算纯解码逻辑的动态能耗"""
@@ -54,3 +55,6 @@ class Decoder:
     def get_throughput_bits_per_ns(self):
         # Gbps = bits / ns
         return self.throughput_gbps
+
+    def get_frequency_ghz(self):
+        return self.frequency_ghz

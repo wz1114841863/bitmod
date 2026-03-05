@@ -56,7 +56,7 @@ class DecoderAccelerator(PE_Array):
             # 并计算是否需要refetch(数据重取)
             self._calc_num_mem_refetch()
 
-    def calc_cycle(self):
+    def calc_cycle_old(self):
         """顶层接口,计算总运行周期.
         总周期 = max(计算周期, DRAM 访问周期), 按层累加.
         模拟了 Double Buffering (双缓冲) 或流水线机制.计算和加载是并行进行的,所以总时间取决于那个"慢"的步骤(Compute-bound vs Memory-bound).
@@ -88,6 +88,43 @@ class DecoderAccelerator(PE_Array):
             # 流水线瓶颈分析: 取 Compute, DRAM, Decode 中的最大值
             bottleneck = max(cycle_layer_compute, cycle_layer_dram, cycle_layer_decode)
             total_cycle += bottleneck
+        self.cycle_compute = total_cycle_compute
+        return total_cycle_compute, total_cycle
+
+    def calc_cycle(self):
+        self._calc_compute_cycle()
+        self._calc_dram_cycle()
+        total_cycle = 0
+        total_cycle_compute = 0
+
+        # 假设你的硬件工作频率, 例如 1.0 GHz (可以通过 decoder_config 传入)
+        frequency_ghz = self.decoder.get_frequency_ghz()
+
+        for name in self.layer_name_list:
+            cycle_layer_compute = self._layer_cycle_compute[name]
+            cycle_layer_dram = self._layer_cycle_dram[name]
+            cycle_layer_decode = 0
+
+            is_compressed_layer = not (("attn_qk" in name) or ("attn_v" in name))
+            if self.decoder and is_compressed_layer:
+                # 1. 获取吞吐率 (单位: Gbps = bits/ns)
+                throughput_gbps = self.decoder.get_throughput_bits_per_ns()
+
+                # 2. 计算该层总比特数 (包含重取次数)
+                num_fetch_w, _ = self._layer_mem_refetch[name]
+                total_bits = self._w_mem_required[name] * 8 * num_fetch_w
+
+                # 3. 将时间转换为周期: (Total Bits / bits/ns) * (ns/cycle)
+                # 或者简单理解为: (Total Bits / Throughput_Gbps) * Frequency_GHz
+                decode_time_ns = total_bits / throughput_gbps
+                cycle_layer_decode = decode_time_ns * frequency_ghz
+
+            total_cycle_compute += cycle_layer_compute
+
+            # 瓶颈分析
+            bottleneck = max(cycle_layer_compute, cycle_layer_dram, cycle_layer_decode)
+            total_cycle += bottleneck
+
         self.cycle_compute = total_cycle_compute
         return total_cycle_compute, total_cycle
 

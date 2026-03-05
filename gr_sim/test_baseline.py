@@ -27,6 +27,16 @@ if __name__ == "__main__":
     total_energy_list = [[0, 0] for _ in model_list]
     total_latency_list = [0 for _ in model_list]
 
+    transmission_prec = 3.5
+    decoder_cfg = {
+        "transmission_prec": transmission_prec,
+        "energy_per_bit": 0.78,  # pJ/bit (基于你的 N 值调整)
+        "area_logic": 0.022,  # mm2
+        "throughput_gbps": 8.0,  # Gbps (基于 P=8, F=1GHz, N=1)
+        "small_sram_area": 0.005,  # 如果有额外的 Buffer 面积
+        "small_sram_energy_per_access": 0.01,  # pJ/access
+    }
+
     for idx, model_name in enumerate(model_list):
         acc = DecoderAccelerator(
             model_name=model_name,
@@ -39,6 +49,7 @@ if __name__ == "__main__":
             pe_array_dim=pe_array_dim,
             context_length=256,
             is_generation=is_generation,
+            decoder_config=decoder_cfg,
         )
 
         total_cycle = acc.calc_cycle()
