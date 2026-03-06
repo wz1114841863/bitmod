@@ -1,6 +1,11 @@
 from mem.cacti_simulation import CactiSimulation
 from typing import Dict
 
+"""
+    CACTI 是学术界和工业界常用的 SRAM/DRAM 建模工具.
+    只要输入容量(Size)/带宽(BW)/工艺节点等,它就能预测出该存储器的读写能耗(pJ)/面积($mm^2$)和访问延迟(ns/cycle)等参数.
+"""
+
 
 class MemoryInstance:
     # # The class constructor

@@ -62,9 +62,9 @@ class Accelerator(PE_Array):
             cycle_layer_compute = self._layer_cycle_compute[name]
             cycle_layer_dram = self._layer_cycle_dram[name]
             total_cycle_compute += cycle_layer_compute
-            print(
-                f"Layer: {name}, Compute Cycle: {cycle_layer_compute}, DRAM Cycle: {cycle_layer_dram}"
-            )
+            # print(
+            #     f"Layer: {name}, Compute Cycle: {cycle_layer_compute}, DRAM Cycle: {cycle_layer_dram}"
+            # )
             total_cycle += max(cycle_layer_compute, cycle_layer_dram)
         self.cycle_compute = total_cycle_compute
         return total_cycle_compute, total_cycle
@@ -346,7 +346,7 @@ class Accelerator(PE_Array):
             get_cost_from_cacti=True,
         )
 
-        # 输入SRAM
+        # 激活SRAM
         if self.is_bit_serial:
             i_bandwidth = self.pe_dp_size * self.i_prec * self.pe_array_dim["w"] / 2
         else:

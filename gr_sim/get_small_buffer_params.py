@@ -35,17 +35,21 @@ def get_cacti_params(size_bytes, bus_width_bits, bank_count=1):
 
 
 if __name__ == "__main__":
-    # --- 场景设定 ---
-    # 假设你的 Small Buffer 是用来存解压后权重的 Ping-Pong Buffer
-    # 大小 = 2 * P * Group_Size * 16bit
-    # 假设 P=32 (PE行数), Group=128
-    # Size = 2 * 32 * 128 * 2 Bytes = 16 KB
+    # WeightSRAM参数推导:
+    # 采用了双缓冲结构, 总容量需要乘以2.
+    # 存储深度: 每个Bank内部有P个独立的存储单元.
+    # Total Size = 2 * P * Depth_Per_Bank * weightWidth
+    # 具体结果: 2 * 8 * 256Bytes = 4 KB
+    # 总线位宽为32bits.
 
-    small_buffer_size = 16 * 1024  # 16 KB
-    bus_width = 128  # 假设内部总线 128 bit
+    small_buffer_size = 2 * 8 * 256
+    bus_width = 32
+    bank_count = 8  # P
 
-    area, energy = get_cacti_params(small_buffer_size, bus_width)
+    area, energy = get_cacti_params(small_buffer_size, bus_width, bank_count)
 
-    print("\n[请将以下数据填入 decoder_config]:")
+    print("\n WeightSRAM 相关参数:")
+    # 0.013013 mm^2
     print(f"'small_sram_area': {area},")
+    # 单次 32-bit 访问的能耗, 2.090436 pJ/access
     print(f"'small_sram_energy_per_access': {energy},")

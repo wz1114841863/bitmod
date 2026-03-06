@@ -14,7 +14,6 @@ class Decoder:
             # 额外的小缓冲 (Small Buffer / Ping-Pong Buffer) 参数
             - small_sram_area: 额外缓冲区的面积 (mm^2)
             - small_sram_energy_per_access: 额外缓冲区每次访问(读/写)的能耗 (pJ/access)
-              (注: 这里的 access 通常指访问一个权重或一个数据块)
         """
         # 核心压缩参数
         self.trans_prec = config.get("transmission_prec", 4.0)
@@ -22,6 +21,7 @@ class Decoder:
         # 逻辑开销
         self.energy_per_bit = config.get("energy_per_bit", 0.0)
         self.area_logic = config.get("area_logic", 0.0)
+        # 吞吐率: P * 每周期解码的bit数 * 频率 (Gbps = bits/ns), eg: 8 * 4bit * 1GHz = 32 Gbps
         self.throughput_gbps = config.get("throughput_gbps", float("inf"))
 
         # 引入的额外存储开销
@@ -29,6 +29,10 @@ class Decoder:
         self.small_sram_energy_per_access = config.get(
             "small_sram_energy_per_access", 0.0
         )
+        self.decoded_weight_bits = config.get("weight_bits", 4)
+        self.bus_width = config.get("bus_width", 32)
+
+        # DC仿真得到的频率 (GHz)
         self.frequency_ghz = config.get("frequency_ghz", 1.0)
 
     def calc_logic_energy(self, total_compressed_bits):
@@ -41,7 +45,13 @@ class Decoder:
         过程: Main SRAM -> (写) -> Small Buffer -> (读) -> PE
         所以是 1次写 + 1次读 = 2次访问
         """
-        return num_weights * 2 * self.small_sram_energy_per_access
+
+        output = (
+            (num_weights * self.decoded_weight_bits / self.bus_width)
+            * 2
+            * self.small_sram_energy_per_access
+        )
+        return output
 
     def get_total_area_overhead(self):
         """

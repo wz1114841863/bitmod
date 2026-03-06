@@ -20,6 +20,8 @@ if __name__ == "__main__":
         pe_array_dim = [32, 24]
         mode_str = "non-generation"
 
+    pe_array_dim = [16, 16]
+
     # 创建结果文件夹
     result_dir = "results"
     os.makedirs(result_dir, exist_ok=True)

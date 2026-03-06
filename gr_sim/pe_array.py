@@ -130,10 +130,11 @@ class PE_Array:
                 ]  # value dimension
                 output_dim[op_name] = [context_length, hidden_size]  # output dimension
 
-        self.weight_dim = weight_dim
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.layer_name_list = list(weight_dim.keys())
+        self.weight_dim = weight_dim  # 存储每一层的权重矩阵形状.
+        self.input_dim = input_dim  # 存储每一层的输入激活矩阵形状.
+        self.output_dim = output_dim  # 存储每一层的输出激活矩阵形状.
+        self.layer_name_list = list(weight_dim.keys())  # 维护模型执行的线性顺序
 
     def _init_mem(self):
+        """需要定义片上缓存(SRAM/Buffer)的大小和带宽等参数, 以便后续计算访问能耗和访问延迟"""
         raise NotImplementedError("ERROR! No implementation of function _init_mem()")

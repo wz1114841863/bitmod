@@ -3,22 +3,30 @@ import os
 from accelerator import DecoderAccelerator
 
 # model_list = ["facebook/opt-1.3b", "microsoft/phi-2", "01-ai/Yi-6B", "meta-llama/Llama-2-7b-hf", "meta-llama/Llama-2-13b-hf", "meta-llama/Meta-Llama-3-8B"]
-model_list = ["facebook/opt-125m", "facebook/opt-1.3b"]
+model_list = ["facebook/opt-125m"]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--is_generation", action="store_true", help="If enabled, then evaluate"
+        "--is_generation",
+        action="store_true",
+        help="If enabled, then evaluate",
+    )
+    parser.add_argument(
+        "--use_decoder",
+        action="store_true",
+        help="If enabled, then include decoder energy",
     )
     args = parser.parse_args()
     is_generation = args.is_generation
+    use_decoder = args.use_decoder
 
     if is_generation:
-        pe_array_dim = [64, 12]
         mode_str = "generation"
     else:
-        pe_array_dim = [32, 24]
         mode_str = "non-generation"
+        
+    pe_array_dim = [16, 16]
 
     # 创建结果文件夹
     result_dir = "results"
@@ -30,11 +38,11 @@ if __name__ == "__main__":
     transmission_prec = 3.5
     decoder_cfg = {
         "transmission_prec": transmission_prec,
-        "energy_per_bit": 0.78,  # pJ/bit (基于你的 N 值调整)
-        "area_logic": 0.022,  # mm2
-        "throughput_gbps": 8.0,  # Gbps (基于 P=8, F=1GHz, N=1)
-        "small_sram_area": 0.005,  # 如果有额外的 Buffer 面积
-        "small_sram_energy_per_access": 0.01,  # pJ/access
+        "energy_per_bit": 0.266,  # pJ/bit.
+        "area_logic": 0.0219,  # mm^2.
+        "throughput_gbps": 32.0,  # Gbps.
+        "small_sram_area": 0.026,  # mm^2.
+        "small_sram_energy_per_access": 2.09,  # pJ/access
     }
 
     for idx, model_name in enumerate(model_list):
@@ -49,7 +57,7 @@ if __name__ == "__main__":
             pe_array_dim=pe_array_dim,
             context_length=256,
             is_generation=is_generation,
-            decoder_config=decoder_cfg,
+            decoder_config=decoder_cfg if use_decoder else None,
         )
 
         total_cycle = acc.calc_cycle()
@@ -57,8 +65,20 @@ if __name__ == "__main__":
         sram_rd_energy = acc.calc_sram_rd_energy() / 1e6
         sram_wr_energy = acc.calc_sram_wr_energy() / 1e6
         dram_energy = acc.calc_dram_energy() / 1e6
-        onchip_energy = compute_energy + sram_rd_energy + sram_wr_energy
-        total_energy = compute_energy + sram_rd_energy + sram_wr_energy + dram_energy
+
+        # 引入的额外解码器和缓冲能耗
+        extra_onchip_energy = acc.calc_extra_onchip_energy() / 1e6
+
+        onchip_energy = (
+            compute_energy + sram_rd_energy + sram_wr_energy + extra_onchip_energy
+        )
+        total_energy = (
+            compute_energy
+            + sram_rd_energy
+            + sram_wr_energy
+            + dram_energy
+            + extra_onchip_energy
+        )
 
         # 打印到控制台
         print(f"model: {model_name}")
@@ -69,6 +89,7 @@ if __name__ == "__main__":
         print(f"weight buffer area: {acc.w_sram.area} mm2")
         print(f"input buffer area:  {acc.i_sram.area} mm2")
         print(f"dram energy:        {dram_energy} uJ")
+        print(f"extra on-chip energy: {extra_onchip_energy} uJ")
         print(f"on-chip energy:     {onchip_energy} uJ")
         print(f"total energy:       {total_energy} uJ")
 
@@ -86,6 +107,7 @@ if __name__ == "__main__":
             f.write(f"weight buffer area: {acc.w_sram.area} mm2\n")
             f.write(f"input buffer area: {acc.i_sram.area} mm2\n")
             f.write(f"dram energy: {dram_energy} uJ\n")
+            f.write(f"extra on-chip energy: {extra_onchip_energy} uJ\n")
             f.write(f"on-chip energy: {onchip_energy} uJ\n")
             f.write(f"total energy: {total_energy} uJ\n")
 
