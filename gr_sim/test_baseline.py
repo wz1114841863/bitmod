@@ -2,8 +2,8 @@ import argparse
 import os
 from accelerator import DecoderAccelerator
 
-# model_list = ["facebook/opt-1.3b", "microsoft/phi-2", "01-ai/Yi-6B", "meta-llama/Llama-2-7b-hf", "meta-llama/Llama-2-13b-hf", "meta-llama/Meta-Llama-3-8B"]
-model_list = ["facebook/opt-125m"]
+# model_list = ["facebook/opt-125m", "facebook/opt-1.3b", "microsoft/phi-2", "01-ai/Yi-6B", "meta-llama/Llama-2-7b-hf", "meta-llama/Llama-2-13b-hf", "meta-llama/Meta-Llama-3-8B"]
+model_list = ["facebook/opt-1.3b"]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -25,7 +25,7 @@ if __name__ == "__main__":
         mode_str = "generation"
     else:
         mode_str = "non-generation"
-        
+
     pe_array_dim = [16, 16]
 
     # 创建结果文件夹
@@ -38,8 +38,8 @@ if __name__ == "__main__":
     transmission_prec = 3.5
     decoder_cfg = {
         "transmission_prec": transmission_prec,
-        "energy_per_bit": 0.266,  # pJ/bit.
-        "area_logic": 0.0219,  # mm^2.
+        "energy_per_bit": 0.187,  # pJ/bit. sum(power dynamic) / system throughput (bit/s) from DC仿真结果
+        "area_logic": 0.021941,  # mm^2. Area(DecoderBank) + Area(MetadataLoade) + Area(WeightLoader) = 21941um^2
         "throughput_gbps": 32.0,  # Gbps.
         "small_sram_area": 0.026,  # mm^2.
         "small_sram_energy_per_access": 2.09,  # pJ/access

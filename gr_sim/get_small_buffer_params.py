@@ -3,7 +3,7 @@ from mem.mem_instance import MemoryInstance
 
 def get_cacti_params(size_bytes, bus_width_bits, bank_count=1):
     """
-    利用 CACTI 计算小 Buffer 的参数
+    利用 CACTI 计算 Buffer 的参数
     """
     config = {
         "technology": 0.028,  # 保持和主 SRAM 一致
@@ -48,8 +48,30 @@ if __name__ == "__main__":
 
     area, energy = get_cacti_params(small_buffer_size, bus_width, bank_count)
 
+    # result: 0.026 mm^2, 2.090436 pJ/access
     print("\n WeightSRAM 相关参数:")
     # 0.013013 mm^2
     print(f"'small_sram_area': {area},")
     # 单次 32-bit 访问的能耗, 2.090436 pJ/access
+    print(f"'small_sram_energy_per_access': {energy},")
+
+
+    # MetaSRAMBuffer参数推导:
+    # 采用了双缓冲结构, 总容量需要乘以2.
+    # 存储深度: 每个Bank内部有P个独立的存储单元.
+    # zero-point: 16bit, scale: 8bit
+    # 具体结果: 2 * 8 * (16 + 8)bit * 512 = 24kb
+    # 总线位宽为24bits.
+
+    small_buffer_size = 2 * 8 * (16 + 8) * 512 // 8  # 转换为Bytes
+    bus_width = 32  # 24时Cacti仿真报错, 32位总线可以兼容24位数据传输
+    bank_count = 8  # P
+
+    area, energy = get_cacti_params(small_buffer_size, bus_width, bank_count)
+
+    # result: 0.0717784 mm^2, 6.499855 pJ/access
+    print("\n MetaSRAMBuffer 相关参数:")
+    # 0.0717784 mm^2
+    print(f"'small_sram_area': {area},")
+    # 单次 24-bit 访问的能耗, 6.499855 pJ/access
     print(f"'small_sram_energy_per_access': {energy},")
