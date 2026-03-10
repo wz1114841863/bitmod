@@ -12,7 +12,6 @@ class Decoder:
             - throughput_gbps: 解码器吞吐率 (Gbps), 用于计算流水线延迟
             - small_sram_area: 额外缓冲区的面积 (mm^2)
             - small_sram_energy_per_weight: 额外缓冲区每次访问(读/写)的能耗 (pJ/weight)
-
             #
         """
         # 核心压缩参数

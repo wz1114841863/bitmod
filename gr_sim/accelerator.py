@@ -9,9 +9,8 @@ from decoder import Decoder
 
 
 class DecoderAccelerator(PE_Array):
-    """结构级模拟器,用于估算Transformer模型在特定PE阵列 + SRAM + DRAM 架构上运行时的总周期与总能耗.
-
-    Main SRAM 存储压缩后的权重数据, DRAM的收益来源于搬运压缩数据.
+    """结构级模拟器, 用于估算Transformer模型在特定PE阵列 + SRAM + DRAM 架构上运行时的总周期与总能耗.
+    将解码器逻辑和小型缓冲区的能耗也纳入计算, 以评估引入解码器后的整体能效表现.
     """
 
     PR_SCALING = 1.5  # scaling factor to account for post placement and routing
@@ -20,7 +19,7 @@ class DecoderAccelerator(PE_Array):
         self,
         model_name: str,
         i_prec: int = 16,
-        w_prec: int = 8,  # 计算位宽, 保持为量化后的定点位宽(4bit)
+        w_prec: int = 4,  # 计算位宽, 保持为量化后的定点位宽(4bit)
         is_bit_serial: bool = False,
         pe_dp_size: int = 1,
         pe_energy: float = 0,
@@ -52,30 +51,43 @@ class DecoderAccelerator(PE_Array):
 
         self.cycle_compute = None
         if init_mem:
-            # 实例化三块内存
+            # 实例化三块内存, 分别用于存储权重/输入/激活和DRAM访问.
             self._init_mem()
-            # 检查每层所需的内存大小
+            # 检查每层权重所需的内存大小.
             self._check_layer_mem_size()
             # 并计算是否需要refetch(数据重取)
             self._calc_num_mem_refetch()
 
     def calc_cycle(self):
-        """顶层接口,计算总运行周期.
-        总周期 = max(计算周期, DRAM 访问周期), 按层累加.
+        """计算模型运行的总周期数,考虑计算/访存和解码的流水线重叠
+        总周期 = max(计算周期, DRAM 访问周期, 解码周期), 按层累加.
         模拟了 Double Buffering (双缓冲) 或流水线机制.计算和加载是并行进行的,所以总时间取决于那个"慢"的步骤(Compute-bound vs Memory-bound).
         """
         self._calc_compute_cycle()  # 计算每层的计算周期
         self._calc_dram_cycle()  # 计算每层的DRAM访问周期
+        self._calc_decode_cycle()  # 计算每层的解码周期
         total_cycle = 0
         total_cycle_compute = 0
         for name in self.layer_name_list:
             cycle_layer_compute = self._layer_cycle_compute[name]
             cycle_layer_dram = self._layer_cycle_dram[name]
+            cycle_layer_decode = self._layer_cycle_decode[name]
+            # 统计纯计算周期(通常用作 Baseline 的完美下界)
             total_cycle_compute += cycle_layer_compute
             # print(
-            #     f"Layer: {name}, Compute Cycle: {cycle_layer_compute}, DRAM Cycle: {cycle_layer_dram}"
+            #     f"""Layer: {name}, Compute Cycle: {cycle_layer_compute},
+            #     DRAM Cycle: {cycle_layer_dram}, Decode Cycle: {cycle_layer_decode}."""
             # )
-            total_cycle += max(cycle_layer_compute, cycle_layer_dram)
+            bottenleck_cycle = max(
+                cycle_layer_compute, cycle_layer_dram, cycle_layer_decode
+            )
+            total_cycle += bottenleck_cycle
+
+            if bottenleck_cycle == cycle_layer_decode:
+                print(
+                    f"[Warning!!!] total_cycle is dominated by decode cycle at layer {name} ..."
+                )
+
         self.cycle_compute = total_cycle_compute
         return total_cycle_compute, total_cycle
 
@@ -125,12 +137,6 @@ class DecoderAccelerator(PE_Array):
         dram_bandwidth = self.dram.rw_bw * 2  # DDR双倍带宽
 
         for name in self.layer_name_list:
-            # i_prec = self.i_prec
-            # if ("attn_qk" in name) or ("attn_v" in name):
-            #     w_prec = self.i_prec
-            # else:
-            #     w_prec = self.w_prec
-            # w_dim = self.weight_dim[name]
             # 权重或激活重取次数
             num_dram_fetch_w, num_dram_fetch_i = self._layer_mem_refetch[name]
             # 权重加载周期
@@ -146,6 +152,46 @@ class DecoderAccelerator(PE_Array):
                 cycle_dram_load_w + cycle_dram_write_o + cycle_dram_load_i
             )
             self._layer_cycle_dram[name] = int(cycle_layer_dram)
+
+    def _calc_decode_cycle(self):
+        """独立计算每一层的解码周期"""
+        self._layer_cycle_decode = {}
+
+        # 如果没有配置解码器,所有层的解码周期直接设为 0
+        if self.decoder is None:
+            for name in self.layer_name_list:
+                self._layer_cycle_decode[name] = 0
+            return
+
+        # 获取解码器每周期产出的有效比特数 (bits/cycle)
+        # Gbps / GHz = bits/cycle
+        bits_per_cycle = (
+            self.decoder.get_throughput_bits_per_ns() / self.decoder.get_frequency_ghz()
+        )
+
+        for name in self.layer_name_list:
+            # Attention 层不进行权重压缩/解压,周期为 0
+            if "attn" in name:
+                self._layer_cycle_decode[name] = 0
+                continue
+
+            # 提取该层的物理参数
+            w_dim = self.weight_dim[name]
+            cout_w, cin_w = w_dim
+            num_weights = cout_w * cin_w
+
+            # 提取该层的重取次数
+            num_fetch_w, _ = self._layer_mem_refetch[name]
+
+            # 计算解码器需要产出的解压后总比特数
+            total_decompressed_bits = num_weights * self.w_prec * num_fetch_w
+
+            # 解码周期 = 任务总量 / 单周期处理能力, 向上取整
+            cycle_layer_decode = int(
+                math.ceil(total_decompressed_bits / bits_per_cycle)
+            )
+
+            self._layer_cycle_decode[name] = cycle_layer_decode
 
     def calc_compute_energy(self):
         """计算 PE 阵列运算消耗的动态能耗"""
@@ -181,7 +227,7 @@ class DecoderAccelerator(PE_Array):
             layer_w_read_energy = layer_compute_cycles * w_sram_rd_cost
 
             # 只有支持量化的线性层,Main SRAM 存的才是压缩数据,读取能耗才会降低
-            is_compressed_layer = not (("attn_qk" in name) or ("attn_v" in name))
+            is_compressed_layer = not (("attn" in name))
             if self.decoder and is_compressed_layer:
                 comp_ratio = self.decoder.trans_prec / self.w_prec
                 layer_w_read_energy *= comp_ratio
@@ -204,7 +250,8 @@ class DecoderAccelerator(PE_Array):
 
     def _calc_sram_wr_energy_fc(self, layer_name, w_dim, i_dim, o_dim, w_prec, i_prec):
         # 确定写入 SRAM 的权重精度
-        if self.decoder:
+        is_compressed_layer = not (("attn" in layer_name))
+        if self.decoder and is_compressed_layer:
             w_prec = self.decoder.trans_prec  # 写压缩数据
         else:
             w_prec = self.w_prec  # 写原始数据
@@ -247,7 +294,6 @@ class DecoderAccelerator(PE_Array):
         """计算单层 DRAM 访问能耗
         DRAM能耗 = (数据量(bit) ÷ 总线宽度) x 单位访问能耗
         """
-        size_sram_i = self.i_sram.size / 8  # 输入SRAM容量(字节)
         bus_width = self.dram.rw_bw  # DRAM总线宽度
         rd_cost = self.dram.r_cost  # DRAM读能耗
         wr_cost = self.dram.w_cost  # DRAM写能耗
@@ -277,7 +323,7 @@ class DecoderAccelerator(PE_Array):
         total_extra = 0
         for name in self.layer_name_list:
             # 跳过 Attention 层
-            if ("attn_qk" in name) or ("attn_v" in name):
+            if "attn" in name:
                 continue
 
             # 获取该层权重总数 (用于 Small Buffer 访问计算)
@@ -290,8 +336,9 @@ class DecoderAccelerator(PE_Array):
 
             # 1. 解码器逻辑能耗
             # 输入: 压缩比特流的总量 (Bytes * 8) * Refetch
-            total_compressed_bits = self._w_mem_required[name] * 8 * num_fetch_w
-            logic_e = self.decoder.calc_logic_energy(total_compressed_bits)
+            # energy_per_bit 是按解压后的输出带宽计算的
+            total_decompressed_bits = num_weights * self.w_prec * num_fetch_w
+            logic_e = self.decoder.calc_logic_energy(total_decompressed_bits)
 
             # 2. Small Buffer 能耗
             # 访问量: (Weights) * Refetch
@@ -318,13 +365,15 @@ class DecoderAccelerator(PE_Array):
 
         for layer_idx, name in enumerate(self.layer_name_list):
             i_prec = self.i_prec
-            if ("attn_qk" in name) or ("attn_v" in name):
+            if "attn" in name:
                 w_prec_storage = self.i_prec
             else:
                 if self.decoder:
-                    w_prec_storage = self.decoder.trans_prec  # 存压缩数据
+                    # 存压缩数据
+                    w_prec_storage = self.decoder.get_transmission_precision()
                 else:
-                    w_prec_storage = self.w_prec  # 存原始数据
+                    # 存原始量化数据
+                    w_prec_storage = self.w_prec
 
             w_dim = self.weight_dim[name]
             i_dim = self.input_dim[name]
@@ -368,6 +417,7 @@ class DecoderAccelerator(PE_Array):
                     total_fetch_input = num_refetch_input * i_mem_required
                     # print(f'{name}, Need DRAM refetch ...')
                     # print(f'w_dim: {w_dim}, i_dim: {i_dim}')
+                    # self._layer_mem_refetch[name] = (num_refetch_weight, 1)
                     # 选择总数据传输量最小的方案
                     if (total_fetch_weight + i_mem_required) < (
                         total_fetch_input + w_mem_required

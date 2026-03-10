@@ -21,12 +21,13 @@ def get_decoder_config(transmission_prec=3.5):
     small_sram_energy_per_weight:
         额外缓冲区每次访问(读/写)的能耗 (pJ/weight)
     """
+    scale_factor = 8
     decoder_cfg = {
         "transmission_prec": transmission_prec,
         "energy_per_bit": 0.1876,  # pJ/bit.
-        "area_logic": 0.021941,  # mm^2.
-        "throughput_gbps": 32.0,  # Gbps.
-        "small_sram_area": 0.0977784,  # mm^2.
+        "area_logic": 0.021941 * scale_factor,  # mm^2.
+        "throughput_gbps": 32.0 * scale_factor,  # Gbps.
+        "small_sram_area": 0.0977784 * scale_factor,  # mm^2.
         "small_sram_energy_per_weight": 0.274,  # pJ/weight
     }
     return decoder_cfg
