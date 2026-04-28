@@ -26,7 +26,7 @@ if __name__ == "__main__":
     PE_ARRAY_DIM = [32, 32]  # 32x32 脉动阵列
     PE_AREA = 150.0  # 修正后的真实 INT4 MAC 面积 (um^2)
     PE_ENERGY = 0.15  # INT4 MAC 的预估能耗 (pJ/op)
-
+    PE_DP_SIZE = 4  # 统一设置点积大小，提升阵列算力
     # 你的压缩算法跑出的平均比特数 (请根据 12_v4_compress_model.py 的真实输出修改)
     YOUR_AVG_BPW = 2.50
 
@@ -58,7 +58,7 @@ if __name__ == "__main__":
             extra_sram_r_cost=0.0,
             extra_sram_w_cost=0.0,
             is_bit_serial=False,
-            pe_dp_size=1,
+            pe_dp_size=PE_DP_SIZE,
             pe_energy=PE_ENERGY,
             pe_area=PE_AREA,
             pe_array_dim=PE_ARRAY_DIM,
@@ -88,7 +88,7 @@ if __name__ == "__main__":
             extra_sram_r_cost=SHARED_CACHE_R_COST,
             extra_sram_w_cost=SHARED_CACHE_W_COST,
             is_bit_serial=False,
-            pe_dp_size=1,
+            pe_dp_size=PE_DP_SIZE,
             pe_energy=PE_ENERGY,
             pe_area=PE_AREA,
             pe_array_dim=PE_ARRAY_DIM,
