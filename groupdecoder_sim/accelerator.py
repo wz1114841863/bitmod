@@ -18,6 +18,12 @@ class Accelerator(PE_Array):
         model_name: str,
         i_prec: int = 16,
         w_prec: int = 8,
+        # 硬件架构参数
+        avg_bpw: float = 4.0,  # 平均每权重比特数 (预设4.0，后续传入真实压缩比)
+        group_size: int = 512,  # 变长压缩分组大小
+        decoder_power_mw: float = 10.0,  # DecoderBank 动态功耗估算 (mW)
+        extra_sram_r_cost: float = 0.0,  # Shared Cache 读取能耗 (pJ)
+        extra_sram_w_cost: float = 0.0,  # Shared Cache 写入能耗 (pJ)
         is_bit_serial: bool = False,
         pe_dp_size: int = 1,
         pe_energy: float = 0,
@@ -39,6 +45,12 @@ class Accelerator(PE_Array):
             context_length,
             is_generation,
         )
+
+        self.avg_bpw = avg_bpw
+        self.group_size = group_size
+        self.decoder_power_mw = decoder_power_mw
+        self.extra_sram_r_cost = extra_sram_r_cost
+        self.extra_sram_w_cost = extra_sram_w_cost
 
         self.cycle_compute = None
         if init_mem:
@@ -110,26 +122,34 @@ class Accelerator(PE_Array):
         return total_tile
 
     def _calc_dram_cycle(self):
-        """根据每层权重/输入/输出的数据量和DRAM带宽,算DRAM访问周期"""
+        """根据每层权重/输入/输出的数据量和DRAM带宽, 算DRAM访问周期，融合压缩捷径"""
         self._layer_cycle_dram = {}
         dram_bandwidth = self.dram.rw_bw * 2  # DDR双倍带宽
 
         for name in self.layer_name_list:
-            i_prec = self.i_prec
-            if ("attn_qk" in name) or ("attn_v" in name):
-                w_prec = self.i_prec
-            else:
-                w_prec = self.w_prec
-            w_dim = self.weight_dim[name]
-            # 权重或激活重取次数
             num_dram_fetch_w, num_dram_fetch_i = self._layer_mem_refetch[name]
-            # 权重加载周期
+            # 原始假定的固定位宽加载周期
             cycle_dram_load_w = self._w_mem_required[name] * 8 / dram_bandwidth
+            # 注入压缩红利和变长惩罚
+            if ("attn_qk" not in name) and ("attn_v" not in name):
+                cout, cin_w = self.weight_dim[name]
+                total_weights = cin_w * cout
+
+                # A. 缩放权重传输周期
+                compression_ratio = self.avg_bpw / self.w_prec
+                cycle_w_compressed = cycle_dram_load_w * compression_ratio
+
+                # B. 增加索引传输周期 (每组 32-bit offset)
+                index_bits = math.ceil(total_weights / self.group_size) * 32
+                cycle_index = index_bits / dram_bandwidth
+
+                # 覆盖原本周期
+                cycle_dram_load_w = cycle_w_compressed + cycle_index
+
             cycle_dram_load_w *= num_dram_fetch_w
-            # 输入加载周期
+
             cycle_dram_load_i = self._i_mem_required[name] * 8 / dram_bandwidth
             cycle_dram_load_i *= num_dram_fetch_i
-            # 输出写回周期
             cycle_dram_write_o = self._o_mem_required[name] * 8 / dram_bandwidth
 
             cycle_layer_dram = (
@@ -210,16 +230,27 @@ class Accelerator(PE_Array):
         """计算单层 DRAM 访问能耗
         DRAM能耗 = (数据量(bit) ÷ 总线宽度) x 单位访问能耗
         """
-        size_sram_i = self.i_sram.size / 8  # 输入SRAM容量(字节)
         bus_width = self.dram.rw_bw  # DRAM总线宽度
         rd_cost = self.dram.r_cost  # DRAM读能耗
         wr_cost = self.dram.w_cost  # DRAM写能耗
-
         num_fetch_w, num_fetch_i = self._layer_mem_refetch[layer_name]
 
         # energy_weight: energy to read weight from DRAM
         w_mem_required = self._w_mem_required[layer_name]
         energy_weight = w_mem_required * 8 / bus_width * rd_cost
+        # 注入压缩能效红利与索引能耗代价
+        if ("attn_qk" not in layer_name) and ("attn_v" not in layer_name):
+            cout, cin_w = self.weight_dim[layer_name]
+            total_weights = cin_w * cout
+
+            compression_ratio = self.avg_bpw / self.w_prec
+            energy_weight_compressed = energy_weight * compression_ratio
+
+            index_bits = math.ceil(total_weights / self.group_size) * 32
+            energy_index = (index_bits / bus_width) * rd_cost
+
+            energy_weight = energy_weight_compressed + energy_index
+
         # energy_input:  energy to read input feature from DRAM
         i_mem_required = self._i_mem_required[layer_name]
         energy_input = i_mem_required * 8 / bus_width * rd_cost
@@ -231,6 +262,40 @@ class Accelerator(PE_Array):
         energy_input *= num_fetch_i
         total_energy = energy_weight + energy_input + energy_output
         return total_energy
+
+    def calc_extra_onchip_energy(self):
+        """计算片上解码器动态能耗和额外流缓冲(Shared Cache)访问能耗"""
+        total_decode_energy = 0
+        total_shared_cache_energy = 0
+
+        # 假设系统频率 1GHz (1 cycle = 1 ns)，则能耗(pJ/cycle) 在数值上等于功耗(mW)
+        energy_per_cycle_decoder = self.decoder_power_mw
+
+        for name in self.layer_name_list:
+            if ("attn_qk" not in name) and ("attn_v" not in name):
+                w_dim = self.weight_dim[name]
+                cout, cin_w = w_dim
+                total_weights = cin_w * cout
+                num_groups = math.ceil(total_weights / self.group_size)
+                num_fetch_w, _ = self._layer_mem_refetch[name]
+
+                # 1. 解码器能量：解码消耗周期数约等于 权重组数 / 并行度(P=8)
+                decode_cycles = num_groups / 8
+                total_decode_energy += (
+                    decode_cycles * energy_per_cycle_decoder
+                ) * num_fetch_w
+
+                # 2. Shared Cache 访问能量：将变长数据写入缓冲并读出供解码
+                # 读写次数粗略等于压缩后的总字数 (64-bit总线)
+                compressed_bits = total_weights * self.avg_bpw
+                cache_accesses = compressed_bits / 64
+                total_shared_cache_energy += (
+                    cache_accesses
+                    * (self.extra_sram_r_cost + self.extra_sram_w_cost)
+                    * num_fetch_w
+                )
+
+        return total_decode_energy + total_shared_cache_energy
 
     def _check_layer_mem_size(self):
         """计算每一次(layer)计算所需的权重/输入/输出内存大小"""
@@ -287,19 +352,22 @@ class Accelerator(PE_Array):
                     total_fetch_input = num_refetch_input * i_mem_required
                     # print(f'{name}, Need DRAM refetch ...')
                     # print(f'w_dim: {w_dim}, i_dim: {i_dim}')
+                    # 权重固定
+                    self._layer_mem_refetch[name] = (num_refetch_weight, 1)
+
                     # 选择总数据传输量最小的方案
-                    if (total_fetch_weight + i_mem_required) < (
-                        total_fetch_input + w_mem_required
-                    ):
-                        # print(f'Refetch weight for {num_refetch_weight} times ...')
-                        # refetch all weight for every input tile
-                        # 反复取权重
-                        self._layer_mem_refetch[name] = (num_refetch_weight, 1)
-                    else:
-                        # print(f'Refetch input for {num_refetch_input} times ...\n\n')
-                        # refetch all input for every weight tile
-                        # 反复取输入
-                        self._layer_mem_refetch[name] = (1, num_refetch_input)
+                    # if (total_fetch_weight + i_mem_required) < (
+                    #     total_fetch_input + w_mem_required
+                    # ):
+                    #     # print(f'Refetch weight for {num_refetch_weight} times ...')
+                    #     # refetch all weight for every input tile
+                    #     # 反复取权重
+                    #     self._layer_mem_refetch[name] = (num_refetch_weight, 1)
+                    # else:
+                    #     # print(f'Refetch input for {num_refetch_input} times ...\n\n')
+                    #     # refetch all input for every weight tile
+                    #     # 反复取输入
+                    #     self._layer_mem_refetch[name] = (1, num_refetch_input)
                 else:
                     # no need refetch
                     self._layer_mem_refetch[name] = (1, 1)
