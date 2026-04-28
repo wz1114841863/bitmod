@@ -87,7 +87,27 @@ if __name__ == "__main__":
     # ==========================================
     print("\n" + "=" * 40)
     print(f"变长解码引入的 MetaSRAM 额外面积代价: {prop_area - base_area:.6f} mm^2")
-    print(
-        f"变长解码引入的额外读写功耗代价: {prop_energy - base_energy:.4f} pJ/access"
-    )
+    print(f"变长解码引入的额外读写功耗代价: {prop_energy - base_energy:.4f} pJ/access")
     print("=" * 40)
+
+    # 1. 评估共有的 WeightSRAM (以 N=32 为例，总计 16KB)
+    # 物理上依然切分成多个 Bank (例如 8 个 2KB 的 Bank) 以匹配读写带宽
+    print("=== Inherent: WeightSRAM (16 KB) ===")
+    # 假定每个 Bank 2KB，32-bit 位宽
+    area_w, r_w, w_w = get_cacti_params(
+        size_bytes=2048, bus_width_bits=32, bank_count=1
+    )
+    total_area_w = area_w * 8  # 8个Bank的总面积
+
+    # 2. 评估额外引入的 Shared Cache (2 KB)
+    print("\n=== Introduced: Shared Cache (2 KB) ===")
+    # 宽总线 64-bit 抓取
+    area_s, r_s, w_s = get_cacti_params(
+        size_bytes=2048, bus_width_bits=64, bank_count=1
+    )
+    """
+    [Result] WeightSRAM Area: 0.0515 mm^2 (Baseline & Proposed)
+    [Result] Extra Shared Cache Area: 0.0070 mm^2 (Proposed Only)
+    """
+    print(f"\n[Result] WeightSRAM Area: {total_area_w:.4f} mm^2 (Baseline & Proposed)")
+    print(f"[Result] Extra Shared Cache Area: {area_s:.4f} mm^2 (Proposed Only)")
